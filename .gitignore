@@ -1,0 +1,22 @@
+# Archivos compilados y caché de Python
+__pycache__/
+*.py[cod]
+
+# Copias automáticas de los notebooks de Jupyter
+.ipynb_checkpoints/
+
+# Entornos virtuales creados dentro del proyecto
+.venv/
+venv/
+env/
+
+# Configuración personal del editor
+.vscode/
+
+# Archivos del sistema operativo
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Nota: data/, results/ y figures/ NO se ignoran,
+# porque la rúbrica exige incluir datos simulados, tablas y gráficas.
