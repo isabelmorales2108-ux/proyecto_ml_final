@@ -1,3 +1,4 @@
+# Recreación con datos simulados: predicción del rendimiento de papa con Sentinel-2 y aprendizaje de máquina
 **Trabajo final — Machine Learning II**\
 Maestría en Analítica Aplicada e Inteligencia Artificial, Universidad de La Sabana\
 Profesor: Jesús Antonio Villarraga Palomino\
