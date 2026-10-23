@@ -112,3 +112,27 @@ def transformar_a_rendimiento(z, media, desv, minimo, maximo, asimetria):
 
     rendimiento = media + desv * estandar
     return np.clip(rendimiento, minimo, maximo)
+def calcular_cobertura(rendimiento, minima, maxima, rendimiento_medio, pendiente):
+    """
+    Calcula la cobertura promedio del dosel en la temporada (entre 0 y 1)
+    a partir del rendimiento, con una curva logística con saturación.
+
+    Parámetros
+    ----------
+    rendimiento : numpy.ndarray
+        Rendimiento en t/ha.
+    minima, maxima : float
+        Cobertura mínima y máxima de la curva.
+    rendimiento_medio : float
+        Rendimiento (t/ha) en el punto de inflexión de la curva.
+    pendiente : float
+        Inclinación de la curva; controla la rapidez de la saturación.
+
+    Retorna
+    -------
+    numpy.ndarray
+        Fracción del píxel cubierta por follaje, promedio de junio a septiembre.
+    """
+    return minima + (maxima - minima) / (
+        1.0 + np.exp(-pendiente * (rendimiento - rendimiento_medio))
+    )
