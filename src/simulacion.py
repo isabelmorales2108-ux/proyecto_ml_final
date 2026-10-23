@@ -7,10 +7,12 @@ coordenadas -> rendimiento con autocorrelación espacial -> cobertura del dosel
 """
 
 import numpy as np
+import pandas as pd
 from scipy.spatial.distance import cdist
 from scipy.stats import norm, skewnorm
-import pandas as pd    
-from . import config       
+
+from . import config
+
 
 def generar_coordenadas(n_puntos, lado_m, rng):
     """
@@ -173,11 +175,8 @@ def mezclar_bandas(cobertura, reflectancia_follaje, reflectancia_suelo):
         + (1.0 - cobertura) * reflectancia_suelo[banda]
         for banda in reflectancia_follaje
     }
-    
-    
-    
-    
-    
+
+
 def aplicar_ruido_sensor(bandas, sigma_relativo, rng):
     """
     Aplica el error radiométrico del sensor (fuente 2): un error relativo
@@ -268,98 +267,6 @@ def calcular_indices(bandas, savi_l=0.5):
     }
 
 
-def generar_parcela(parcela, rng, alcance_m=None, ruido=None):
-    """
-    Genera los datos simulados de una parcela para los dos sensores y las
-    dos estrategias de simulación.
-
-    Dentro de la parcela, los dos sensores y las dos estrategias comparten
-    los mismos puntos, el mismo rendimiento y la misma cobertura del dosel.
-    Las estrategias solo difieren en las fuentes de ruido compartidas entre
-    bandas (brillo del suelo e iluminación); los sensores, solo en el ruido
-    del sensor.
-
-    Parámetros
-    ----------
-    parcela : str
-        Identificador de la parcela: "A", "B", "C" o "D".
-    rng : numpy.random.Generator
-        Generador aleatorio.
-    alcance_m : float, opcional
-        Alcance de la autocorrelación (m). Por defecto, el de config.
-    ruido : dict, opcional
-        Parámetros de ruido con la estructura de config.RUIDO. Por defecto,
-        los de config. Permite calibrar sin modificar config.
-
-    Retorna
-    -------
-    pandas.DataFrame
-        4 x 300 filas (2 sensores x 2 estrategias x 300 puntos) con columnas
-        de diseño, la respuesta, los 8 predictores y la cobertura real.
-    """
-    info = config.PARCELAS_INFO[parcela]
-    alcance = config.AUTOCORRELACION["alcance_m"] if alcance_m is None else alcance_m
-    pepita = config.AUTOCORRELACION["pepita"]
-    ruido = config.RUIDO if ruido is None else ruido
-    cob = config.COBERTURA
-
-    # 1. Puntos y rendimiento con autocorrelación espacial
-    xy = generar_coordenadas(config.N_PUNTOS, config.LOTE_LADO_M, rng)
-    z = generar_campo_espacial(xy, alcance, pepita, rng)
-    rendimiento = transformar_a_rendimiento(
-        z, info["media"], info["desv"], info["minimo"], info["maximo"], info["asimetria"]
-    )
-
-    # 2. Fuente 1: desacople dosel-rendimiento (campo espacial independiente)
-    desacople = generar_campo_espacial(xy, alcance, pepita, rng)
-    rendimiento_visible = rendimiento + ruido["desacople"] * info["desv"] * desacople
-    cobertura = calcular_cobertura(
-        rendimiento_visible, cob["minima"], cob["maxima"],
-        cob["rendimiento_medio"], cob["pendiente"],
-    )
-
-    tablas = []
-    for estrategia in config.ESTRATEGIAS:
-        # 3. Suelo: fijo (univariada) o con brillo variable en manchas (multivariada)
-        if estrategia == "multivariada":
-            humedad = norm.cdf(generar_campo_espacial(xy, alcance, pepita, rng))
-            suelo = {
-                b: config.REFLECTANCIA_SUELO_HUMEDO[b]
-                + humedad * (config.REFLECTANCIA_SUELO_SECO[b] - config.REFLECTANCIA_SUELO_HUMEDO[b])
-                for b in config.BANDAS
-            }
-        else:
-            suelo = config.REFLECTANCIA_SUELO_HUMEDO
-
-        bandas_base = mezclar_bandas(cobertura, config.REFLECTANCIA_FOLLAJE, suelo)
-
-        # 4. Fuente 4: iluminación compartida (solo multivariada)
-        if estrategia == "multivariada":
-            bandas_base = aplicar_iluminacion(bandas_base, ruido["iluminacion"], rng)
-
-        for sensor in config.SENSORES:
-            # 5. Fuente 2: ruido del sensor y cálculo de índices
-            bandas = aplicar_ruido_sensor(bandas_base, ruido["sensor"][sensor], rng)
-            indices = calcular_indices(bandas, config.SAVI_L)
-
-            tabla = pd.DataFrame({
-                "parcela": parcela,
-                "anio": info["anio"],
-                "metodo": info["metodo"],
-                "sensor": sensor,
-                "estrategia": estrategia,
-                "punto": np.arange(len(xy)),
-                "x": xy[:, 0],
-                "y": xy[:, 1],
-                config.VARIABLE_RESPUESTA: rendimiento,
-                **bandas,
-                **indices,
-                "cobertura_real": cobertura,
-            })
-            tablas.append(tabla)
-
-    return pd.concat(tablas, ignore_index=True)
-
 def ubicar_mediciones_excavacion(lado_m, n_zonas=3, n_columnas=5, n_filas=2):
     """
     Ubica los puntos de medición manual de las parcelas de excavación.
@@ -420,3 +327,124 @@ def interpolar_idw(xy_mediciones, valores, xy_destino, potencia=2.0):
     distancias = np.maximum(distancias, 1e-9)   # evita dividir por cero
     pesos = 1.0 / distancias ** potencia
     return (pesos @ valores) / pesos.sum(axis=1)
+
+
+def generar_parcela(parcela, rng, alcance_m=None, ruido=None):
+    """
+    Genera los datos simulados de una parcela para los dos sensores y las
+    dos estrategias de simulación.
+
+    Dentro de la parcela, los dos sensores y las dos estrategias comparten
+    los mismos puntos, el mismo rendimiento y la misma cobertura del dosel.
+    Las estrategias solo difieren en las fuentes de ruido compartidas entre
+    bandas (brillo del suelo e iluminación); los sensores, solo en el ruido
+    del sensor.
+
+    En las parcelas de excavación manual (B y D) se agregan las 30 mediciones
+    del artículo y se calcula el rendimiento interpolado por IDW en los 300
+    puntos de muestreo, como hicieron los autores. El rendimiento real se
+    conserva en todos los puntos para medir el efecto de la interpolación.
+
+    Parámetros
+    ----------
+    parcela : str
+        Identificador de la parcela: "A", "B", "C" o "D".
+    rng : numpy.random.Generator
+        Generador aleatorio.
+    alcance_m : float, opcional
+        Alcance de la autocorrelación (m). Por defecto, el de config.
+    ruido : dict, opcional
+        Parámetros de ruido con la estructura de config.RUIDO. Por defecto,
+        los de config. Permite calibrar sin modificar config.
+
+    Retorna
+    -------
+    pandas.DataFrame
+        Una fila por punto, sensor y estrategia: 1.200 filas en A y C
+        (300 puntos) y 1.320 en B y D (300 de muestreo + 30 de medición).
+    """
+    info = config.PARCELAS_INFO[parcela]
+    alcance = config.AUTOCORRELACION["alcance_m"] if alcance_m is None else alcance_m
+    pepita = config.AUTOCORRELACION["pepita"]
+    ruido = config.RUIDO if ruido is None else ruido
+    cob = config.COBERTURA
+    es_excavacion = info["metodo"] == "excavacion"
+
+    # 1. Puntos: 300 de muestreo y, en B y D, las 30 mediciones manuales
+    xy_muestreo = generar_coordenadas(config.N_PUNTOS, config.LOTE_LADO_M, rng)
+    if es_excavacion:
+        xy_medicion = ubicar_mediciones_excavacion(config.LOTE_LADO_M)
+        xy = np.vstack([xy_muestreo, xy_medicion])
+        tipo_punto = ["muestreo"] * len(xy_muestreo) + ["medicion"] * len(xy_medicion)
+    else:
+        xy = xy_muestreo
+        tipo_punto = ["muestreo"] * len(xy_muestreo)
+
+    # 2. Rendimiento real con autocorrelación espacial (en todos los puntos)
+    z = generar_campo_espacial(xy, alcance, pepita, rng)
+    rendimiento = transformar_a_rendimiento(
+        z, info["media"], info["desv"], info["minimo"], info["maximo"], info["asimetria"]
+    )
+
+    # 3. Rendimiento interpolado (solo B y D): IDW desde las 30 mediciones
+    if es_excavacion:
+        n = len(xy_muestreo)
+        medido = rendimiento[n:]
+        rendimiento_interpolado = np.concatenate([
+            interpolar_idw(xy_medicion, medido, xy_muestreo, config.IDW_POTENCIA),
+            medido,
+        ])
+    else:
+        rendimiento_interpolado = np.full(len(xy), np.nan)
+
+    # 4. Fuente 1: desacople dosel-rendimiento (campo espacial independiente)
+    desacople = generar_campo_espacial(xy, alcance, pepita, rng)
+    rendimiento_visible = rendimiento + ruido["desacople"] * info["desv"] * desacople
+    cobertura = calcular_cobertura(
+        rendimiento_visible, cob["minima"], cob["maxima"],
+        cob["rendimiento_medio"], cob["pendiente"],
+    )
+
+    tablas = []
+    for estrategia in config.ESTRATEGIAS:
+        # 5. Suelo: fijo (univariada) o con brillo variable en manchas (multivariada)
+        if estrategia == "multivariada":
+            humedad = norm.cdf(generar_campo_espacial(xy, alcance, pepita, rng))
+            suelo = {
+                b: config.REFLECTANCIA_SUELO_HUMEDO[b]
+                + humedad * (config.REFLECTANCIA_SUELO_SECO[b] - config.REFLECTANCIA_SUELO_HUMEDO[b])
+                for b in config.BANDAS
+            }
+        else:
+            suelo = config.REFLECTANCIA_SUELO_HUMEDO
+
+        bandas_base = mezclar_bandas(cobertura, config.REFLECTANCIA_FOLLAJE, suelo)
+
+        # 6. Fuente 4: iluminación compartida (solo multivariada)
+        if estrategia == "multivariada":
+            bandas_base = aplicar_iluminacion(bandas_base, ruido["iluminacion"], rng)
+
+        for sensor in config.SENSORES:
+            # 7. Fuente 2: ruido del sensor y cálculo de índices
+            bandas = aplicar_ruido_sensor(bandas_base, ruido["sensor"][sensor], rng)
+            indices = calcular_indices(bandas, config.SAVI_L)
+
+            tabla = pd.DataFrame({
+                "parcela": parcela,
+                "anio": info["anio"],
+                "metodo": info["metodo"],
+                "sensor": sensor,
+                "estrategia": estrategia,
+                "tipo_punto": tipo_punto,
+                "punto": np.arange(len(xy)),
+                "x": xy[:, 0],
+                "y": xy[:, 1],
+                config.VARIABLE_RESPUESTA: rendimiento,
+                "rendimiento_interpolado": rendimiento_interpolado,
+                **bandas,
+                **indices,
+                "cobertura_real": cobertura,
+            })
+            tablas.append(tabla)
+
+    return pd.concat(tablas, ignore_index=True)
