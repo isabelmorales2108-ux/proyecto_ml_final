@@ -10,6 +10,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 from scipy.stats import norm, skewnorm
 
+
 def generar_coordenadas(n_puntos, lado_m, rng):
     """
     Genera coordenadas aleatorias uniformes dentro de un lote cuadrado.
@@ -32,6 +33,8 @@ def generar_coordenadas(n_puntos, lado_m, rng):
         Columna 0: coordenada x (m). Columna 1: coordenada y (m).
     """
     return rng.uniform(0.0, lado_m, size=(n_puntos, 2))
+
+
 def generar_campo_espacial(xy, alcance_m, pepita, rng):
     """
     Genera un campo aleatorio estandarizado con autocorrelación espacial.
@@ -73,6 +76,8 @@ def generar_campo_espacial(xy, alcance_m, pepita, rng):
     # 5. Mezcla de valores aleatorios independientes
     w = rng.standard_normal(len(xy))
     return L @ w
+
+
 def transformar_a_rendimiento(z, media, desv, minimo, maximo, asimetria):
     """
     Convierte un campo estandarizado en rendimiento (t/ha).
@@ -112,6 +117,8 @@ def transformar_a_rendimiento(z, media, desv, minimo, maximo, asimetria):
 
     rendimiento = media + desv * estandar
     return np.clip(rendimiento, minimo, maximo)
+
+
 def calcular_cobertura(rendimiento, minima, maxima, rendimiento_medio, pendiente):
     """
     Calcula la cobertura promedio del dosel en la temporada (entre 0 y 1)
@@ -136,3 +143,32 @@ def calcular_cobertura(rendimiento, minima, maxima, rendimiento_medio, pendiente
     return minima + (maxima - minima) / (
         1.0 + np.exp(-pendiente * (rendimiento - rendimiento_medio))
     )
+
+
+def mezclar_bandas(cobertura, reflectancia_follaje, reflectancia_suelo):
+    """
+    Calcula la reflectancia de cada banda por mezcla lineal de follaje y suelo.
+
+        reflectancia = cobertura * follaje + (1 - cobertura) * suelo
+
+    Parámetros
+    ----------
+    cobertura : numpy.ndarray
+        Fracción del píxel cubierta por follaje (entre 0 y 1).
+    reflectancia_follaje : dict
+        Reflectancia del follaje por banda, por ejemplo {"azul": 0.02, ...}.
+    reflectancia_suelo : dict
+        Reflectancia del suelo por banda. Los valores pueden ser números
+        (suelo uniforme) o arreglos con un valor por punto (suelo variable,
+        como en la estrategia multivariada).
+
+    Retorna
+    -------
+    dict
+        Un arreglo de reflectancias por banda: {"azul": ..., "verde": ..., ...}.
+    """
+    return {
+        banda: cobertura * reflectancia_follaje[banda]
+        + (1.0 - cobertura) * reflectancia_suelo[banda]
+        for banda in reflectancia_follaje
+    }
