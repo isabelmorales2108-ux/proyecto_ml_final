@@ -155,8 +155,8 @@ N_BLOQUES_LADO = 4                   # grilla de 4 x 4 bloques de 97,5 m (> alca
 DISTANCIA_EXCLUSION_M = 40.0         # zona de exclusión igual al alcance
 
 # ---------------------------------------------------------------------
-# 10. Fuentes de ruido [S] (valores iniciales; se calibran con las
-#     métricas de prueba de las Tablas 4 y 5)
+# # 10. Fuentes de ruido [S], calibradas con las parcelas A y C frente a las
+#     Tablas 4 y 5 (diferencia media de R² por parcela y sensor: 0,038)
 #
 #     Ambas estrategias: desacople dosel-rendimiento y ruido del sensor.
 #     Solo multivariada: brillo del suelo e iluminación, compartidos
@@ -166,11 +166,11 @@ RUIDO = {
     # Fuente 1. Parte del rendimiento que no se expresa en el follaje
     # (nematodos, Rhizoctonia, compactación). En desviaciones estándar de
     # la parcela; con manchas del mismo alcance que el rendimiento.
-    "desacople": 0.30,
+    "desacople": 0.35,
 
     # Fuente 2. Error radiométrico relativo de cada banda, independiente
     # por punto y por banda.
-    "sensor": {"Sentinel-2": 0.025, "PlanetScope": 0.040},
+    "sensor": {"Sentinel-2": 0.020, "PlanetScope": 0.025},
 
     # Fuente 3. Brillo del suelo entre húmedo y seco, con estructura
     # espacial (alcance de AUTOCORRELACION). Sin parámetro adicional:
