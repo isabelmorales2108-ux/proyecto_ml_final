@@ -448,3 +448,44 @@ def generar_parcela(parcela, rng, alcance_m=None, ruido=None):
             tablas.append(tabla)
 
     return pd.concat(tablas, ignore_index=True)
+
+
+def generar_base(semilla=None, alcance_m=None, ruido=None, guardar=True,
+                 nombre_archivo="datos_simulados.csv"):
+    """
+    Genera la base simulada completa: las cuatro parcelas, los dos sensores
+    y las dos estrategias de simulación.
+
+    Parámetros
+    ----------
+    semilla : int, opcional
+        Semilla del generador aleatorio. Por defecto, config.SEMILLA.
+        Para las réplicas se usan semillas distintas.
+    alcance_m : float, opcional
+        Alcance de la autocorrelación (m). Por defecto, el de config.
+    ruido : dict, opcional
+        Parámetros de ruido. Por defecto, config.RUIDO.
+    guardar : bool
+        Si es True, guarda la base en la carpeta data/.
+    nombre_archivo : str
+        Nombre del archivo CSV.
+
+    Retorna
+    -------
+    pandas.DataFrame
+        Base completa: 5.040 filas (1.200 en A y C, 1.320 en B y D).
+    """
+    semilla = config.SEMILLA if semilla is None else semilla
+    rng = np.random.default_rng(semilla)
+
+    base = pd.concat(
+        [generar_parcela(p, rng, alcance_m=alcance_m, ruido=ruido) for p in config.PARCELAS],
+        ignore_index=True,
+    )
+    base.insert(0, "semilla", semilla)
+
+    if guardar:
+        config.DIR_DATOS.mkdir(parents=True, exist_ok=True)
+        base.to_csv(config.DIR_DATOS / nombre_archivo, index=False)
+
+    return base
