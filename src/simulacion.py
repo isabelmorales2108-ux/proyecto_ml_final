@@ -172,3 +172,63 @@ def mezclar_bandas(cobertura, reflectancia_follaje, reflectancia_suelo):
         + (1.0 - cobertura) * reflectancia_suelo[banda]
         for banda in reflectancia_follaje
     }
+    
+    
+    
+    
+    
+def aplicar_ruido_sensor(bandas, sigma_relativo, rng):
+    """
+    Aplica el error radiométrico del sensor (fuente 2): un error relativo
+    independiente en cada banda y en cada punto.
+
+        banda_observada = banda * (1 + e),  e ~ Normal(0, sigma_relativo)
+
+    Parámetros
+    ----------
+    bandas : dict
+        Reflectancias por banda (salida de mezclar_bandas).
+    sigma_relativo : float
+        Desviación estándar del error relativo (0.025 = 2,5 %).
+    rng : numpy.random.Generator
+        Generador aleatorio.
+
+    Retorna
+    -------
+    dict
+        Reflectancias con ruido, por banda.
+    """
+    return {
+        banda: valores * (1.0 + rng.normal(0.0, sigma_relativo, size=len(valores)))
+        for banda, valores in bandas.items()
+    }
+
+
+def aplicar_iluminacion(bandas, sigma_relativo, rng):
+    """
+    Aplica la variación de iluminación o calibración (fuente 4): un mismo
+    factor por punto que escala las cuatro bandas en la misma proporción.
+
+        banda_observada = banda * (1 + f),  f ~ Normal(0, sigma_relativo)
+
+    Como el factor es común a todas las bandas, se cancela en los índices
+    normalizados (NDVI, GNDVI), pero no en las bandas individuales.
+
+    Parámetros
+    ----------
+    bandas : dict
+        Reflectancias por banda.
+    sigma_relativo : float
+        Desviación estándar del factor relativo (0.03 = 3 %).
+    rng : numpy.random.Generator
+        Generador aleatorio.
+
+    Retorna
+    -------
+    dict
+        Reflectancias con el factor de iluminación aplicado.
+    """
+    n_puntos = len(next(iter(bandas.values())))
+    factor = 1.0 + rng.normal(0.0, sigma_relativo, size=n_puntos)
+    return {banda: valores * factor for banda, valores in bandas.items()}
+
