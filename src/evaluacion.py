@@ -6,12 +6,16 @@ la correlación entre observado y predicho), para analizar el hallazgo 1:
 la posible confusión entre ambas versiones del R².
 """
 
+import time
+
 import numpy as np
+import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 
 from . import config
 from .modelos import construir_modelo
+from .simulacion import generar_base
 
 
 def calcular_metricas(observado, predicho):
@@ -119,3 +123,61 @@ def evaluar_como_articulo(datos, nombre_modelo, semilla, respuesta=None):
         metricas = calcular_metricas(y[idx], modelo.predict(X[idx]))
         resultado.update({prefijo + k: v for k, v in metricas.items()})
     return resultado
+
+
+def ejecutar_recreacion(n_replicas=None, archivo="02_replicas.csv", recalcular=False):
+    """
+    Recrea el análisis del artículo con varias réplicas y guarda los resultados.
+
+    Cada réplica genera una base simulada con una semilla distinta
+    (config.SEMILLA + número de réplica) y aplica el procedimiento del
+    artículo a todas las combinaciones de parcela, sensor, estrategia y
+    modelo. En B y D se evalúan dos respuestas: el rendimiento interpolado
+    (recreación fiel del artículo) y el rendimiento real (contraste).
+
+    Si el archivo de resultados ya existe y recalcular es False, se lee el
+    archivo en lugar de volver a entrenar los modelos.
+
+    Parámetros
+    ----------
+    n_replicas : int, opcional
+        Número de réplicas. Por defecto, config.N_REPLICAS (30).
+    archivo : str
+        Nombre del archivo CSV en la carpeta results/.
+    recalcular : bool
+        Si es True, vuelve a calcular aunque el archivo exista.
+
+    Retorna
+    -------
+    pandas.DataFrame
+        Una fila por réplica, parcela, sensor, estrategia, modelo y respuesta,
+        con las métricas de entrenamiento y de prueba.
+    """
+    ruta = config.DIR_RESULTADOS / archivo
+    if ruta.exists() and not recalcular:
+        return pd.read_csv(ruta)
+
+    n_replicas = config.N_REPLICAS if n_replicas is None else n_replicas
+    filas = []
+    inicio = time.time()
+    for replica in range(n_replicas):
+        semilla = config.SEMILLA + replica
+        base = generar_base(semilla=semilla, guardar=False)
+        for (parcela, sensor, estrategia), datos in base.groupby(
+            ["parcela", "sensor", "estrategia"]
+        ):
+            respuestas = [config.VARIABLE_RESPUESTA]
+            if datos["rendimiento_interpolado"].notna().all():
+                respuestas.append("rendimiento_interpolado")
+            for respuesta in respuestas:
+                for modelo in config.MODELOS:
+                    resultado = evaluar_como_articulo(datos, modelo, semilla, respuesta)
+                    resultado["replica"] = replica
+                    filas.append(resultado)
+        minutos = (time.time() - inicio) / 60
+        print(f"Réplica {replica + 1}/{n_replicas} terminada ({minutos:.1f} min)")
+
+    resultados = pd.DataFrame(filas)
+    config.DIR_RESULTADOS.mkdir(parents=True, exist_ok=True)
+    resultados.to_csv(ruta, index=False)
+    return resultados
