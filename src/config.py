@@ -183,3 +183,28 @@ RUIDO = {
 
 ESTRATEGIAS = ["univariada", "multivariada"]
 
+
+# ---------------------------------------------------------------------
+# 11. Hiperparámetros no reportados en la Tabla 3 [S]
+#     Valores por defecto de Google Earth Engine (verificados en la
+#     documentación oficial de smileCart, smileRandomForest y
+#     smileGradientTreeBoost) y su equivalente en scikit-learn.
+#     Se combinan con HIPERPARAMETROS (bloque 6) al construir cada modelo.
+# ---------------------------------------------------------------------
+HIPERPARAMETROS_FIJOS = {
+    "CART": {
+        "min_samples_leaf": 1,           # minLeafPopulation = 1
+    },
+    "RF": {
+        "max_features": "sqrt",          # variablesPerSplit = raíz cuadrada de 8 -> 2
+        "bootstrap": True,
+        "max_samples": 0.5,              # bagFraction = 0,5
+        "max_leaf_nodes": None,          # maxNodes = sin límite
+    },
+    "GTB": {
+        "subsample": 0.7,                # samplingRate = 0,7
+        "max_depth": None,               # maxNodes = sin límite (scikit-learn usa 3 por defecto)
+        "max_leaf_nodes": None,
+        "loss": "absolute_error",        # loss = LeastAbsoluteDeviation
+    },
+}
