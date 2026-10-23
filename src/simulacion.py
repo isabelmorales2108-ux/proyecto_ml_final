@@ -8,6 +8,7 @@ coordenadas -> rendimiento con autocorrelación espacial -> cobertura del dosel
 
 import numpy as np
 from scipy.spatial.distance import cdist
+from scipy.stats import norm, skewnorm
 
 def generar_coordenadas(n_puntos, lado_m, rng):
     """
@@ -72,3 +73,42 @@ def generar_campo_espacial(xy, alcance_m, pepita, rng):
     # 5. Mezcla de valores aleatorios independientes
     w = rng.standard_normal(len(xy))
     return L @ w
+def transformar_a_rendimiento(z, media, desv, minimo, maximo, asimetria):
+    """
+    Convierte un campo estandarizado en rendimiento (t/ha).
+
+    Si la asimetría es 0, aplica una transformación lineal. Si es distinta
+    de 0, aplica una transformación por cuantiles hacia una normal
+    asimétrica, que conserva el orden de los puntos y, por tanto, la
+    estructura espacial del campo.
+
+    Parámetros
+    ----------
+    z : numpy.ndarray
+        Campo estandarizado (salida de generar_campo_espacial).
+    media, desv : float
+        Media y desviación estándar del rendimiento de la parcela (t/ha).
+    minimo, maximo : float
+        Límites del rendimiento (t/ha); los valores fuera se recortan.
+    asimetria : float
+        Parámetro de forma de la normal asimétrica (0 = simétrica;
+        positivo = cola hacia valores altos).
+
+    Retorna
+    -------
+    numpy.ndarray
+        Rendimiento en t/ha.
+    """
+    if asimetria == 0:
+        estandar = z
+    else:
+        # 1. De z a percentil (entre 0 y 1)
+        percentil = norm.cdf(z)
+        # 2. Del percentil al valor de la normal asimétrica
+        valor = skewnorm.ppf(percentil, asimetria)
+        # 3. Estandarizar con la media y la varianza teóricas de esa distribución
+        m, v = skewnorm.stats(asimetria, moments="mv")
+        estandar = (valor - m) / np.sqrt(v)
+
+    rendimiento = media + desv * estandar
+    return np.clip(rendimiento, minimo, maximo)
