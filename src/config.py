@@ -114,3 +114,22 @@ METRICAS_ARTICULO = {
         "D": {"CART": (4.86, 3.41, 0.69), "RF": (4.44, 3.45, 0.62), "GTB": (4.25, 3.38, 0.67)},
     },
 }
+# ---------------------------------------------------------------------
+# 8. Modelo generador: mezcla lineal de follaje y suelo [S]
+#    Reflectancia de la banda = cobertura * follaje + (1 - cobertura) * suelo
+#    Valores típicos de la literatura, validados con criterio agronómico
+#    para papa sobre suelo de la serie Charlottetown (Isla del Príncipe Eduardo).
+# ---------------------------------------------------------------------
+REFLECTANCIA_FOLLAJE = {"azul": 0.02, "verde": 0.06, "rojo": 0.03, "nir": 0.45}
+REFLECTANCIA_SUELO_HUMEDO = {"azul": 0.06, "verde": 0.09, "rojo": 0.14, "nir": 0.22}
+REFLECTANCIA_SUELO_SECO = {"azul": 0.08, "verde": 0.12, "rojo": 0.18, "nir": 0.27}
+
+# Cobertura promedio de temporada (junio-septiembre) en función del
+# rendimiento. Curva logística con saturación moderada: el compuesto
+# estacional promedia fases de cobertura parcial y dosel cerrado.
+COBERTURA = {
+    "minima": 0.20,
+    "maxima": 0.95,
+    "rendimiento_medio": 50.0,   # t/ha en el punto de inflexión
+    "pendiente": 0.053,          # calibrada: B y D entre 0,85 y 0,88
+}
