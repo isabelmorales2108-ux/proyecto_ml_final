@@ -9,7 +9,8 @@ coordenadas -> rendimiento con autocorrelación espacial -> cobertura del dosel
 import numpy as np
 from scipy.spatial.distance import cdist
 from scipy.stats import norm, skewnorm
-
+import pandas as pd    
+from . import config       
 
 def generar_coordenadas(n_puntos, lado_m, rng):
     """
@@ -265,3 +266,96 @@ def calcular_indices(bandas, savi_l=0.5):
         "evi": 2.5 * (nir - rojo) / (nir + 6.0 * rojo - 7.5 * azul + 1.0),
         "savi": (1.0 + savi_l) * (nir - rojo) / (nir + rojo + savi_l),
     }
+
+
+def generar_parcela(parcela, rng, alcance_m=None, ruido=None):
+    """
+    Genera los datos simulados de una parcela para los dos sensores y las
+    dos estrategias de simulación.
+
+    Dentro de la parcela, los dos sensores y las dos estrategias comparten
+    los mismos puntos, el mismo rendimiento y la misma cobertura del dosel.
+    Las estrategias solo difieren en las fuentes de ruido compartidas entre
+    bandas (brillo del suelo e iluminación); los sensores, solo en el ruido
+    del sensor.
+
+    Parámetros
+    ----------
+    parcela : str
+        Identificador de la parcela: "A", "B", "C" o "D".
+    rng : numpy.random.Generator
+        Generador aleatorio.
+    alcance_m : float, opcional
+        Alcance de la autocorrelación (m). Por defecto, el de config.
+    ruido : dict, opcional
+        Parámetros de ruido con la estructura de config.RUIDO. Por defecto,
+        los de config. Permite calibrar sin modificar config.
+
+    Retorna
+    -------
+    pandas.DataFrame
+        4 x 300 filas (2 sensores x 2 estrategias x 300 puntos) con columnas
+        de diseño, la respuesta, los 8 predictores y la cobertura real.
+    """
+    info = config.PARCELAS_INFO[parcela]
+    alcance = config.AUTOCORRELACION["alcance_m"] if alcance_m is None else alcance_m
+    pepita = config.AUTOCORRELACION["pepita"]
+    ruido = config.RUIDO if ruido is None else ruido
+    cob = config.COBERTURA
+
+    # 1. Puntos y rendimiento con autocorrelación espacial
+    xy = generar_coordenadas(config.N_PUNTOS, config.LOTE_LADO_M, rng)
+    z = generar_campo_espacial(xy, alcance, pepita, rng)
+    rendimiento = transformar_a_rendimiento(
+        z, info["media"], info["desv"], info["minimo"], info["maximo"], info["asimetria"]
+    )
+
+    # 2. Fuente 1: desacople dosel-rendimiento (campo espacial independiente)
+    desacople = generar_campo_espacial(xy, alcance, pepita, rng)
+    rendimiento_visible = rendimiento + ruido["desacople"] * info["desv"] * desacople
+    cobertura = calcular_cobertura(
+        rendimiento_visible, cob["minima"], cob["maxima"],
+        cob["rendimiento_medio"], cob["pendiente"],
+    )
+
+    tablas = []
+    for estrategia in config.ESTRATEGIAS:
+        # 3. Suelo: fijo (univariada) o con brillo variable en manchas (multivariada)
+        if estrategia == "multivariada":
+            humedad = norm.cdf(generar_campo_espacial(xy, alcance, pepita, rng))
+            suelo = {
+                b: config.REFLECTANCIA_SUELO_HUMEDO[b]
+                + humedad * (config.REFLECTANCIA_SUELO_SECO[b] - config.REFLECTANCIA_SUELO_HUMEDO[b])
+                for b in config.BANDAS
+            }
+        else:
+            suelo = config.REFLECTANCIA_SUELO_HUMEDO
+
+        bandas_base = mezclar_bandas(cobertura, config.REFLECTANCIA_FOLLAJE, suelo)
+
+        # 4. Fuente 4: iluminación compartida (solo multivariada)
+        if estrategia == "multivariada":
+            bandas_base = aplicar_iluminacion(bandas_base, ruido["iluminacion"], rng)
+
+        for sensor in config.SENSORES:
+            # 5. Fuente 2: ruido del sensor y cálculo de índices
+            bandas = aplicar_ruido_sensor(bandas_base, ruido["sensor"][sensor], rng)
+            indices = calcular_indices(bandas, config.SAVI_L)
+
+            tabla = pd.DataFrame({
+                "parcela": parcela,
+                "anio": info["anio"],
+                "metodo": info["metodo"],
+                "sensor": sensor,
+                "estrategia": estrategia,
+                "punto": np.arange(len(xy)),
+                "x": xy[:, 0],
+                "y": xy[:, 1],
+                config.VARIABLE_RESPUESTA: rendimiento,
+                **bandas,
+                **indices,
+                "cobertura_real": cobertura,
+            })
+            tablas.append(tabla)
+
+    return pd.concat(tablas, ignore_index=True)
