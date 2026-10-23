@@ -359,3 +359,64 @@ def generar_parcela(parcela, rng, alcance_m=None, ruido=None):
             tablas.append(tabla)
 
     return pd.concat(tablas, ignore_index=True)
+
+def ubicar_mediciones_excavacion(lado_m, n_zonas=3, n_columnas=5, n_filas=2):
+    """
+    Ubica los puntos de medición manual de las parcelas de excavación.
+
+    Reproduce el diseño del artículo: el lote se divide en 3 zonas y en
+    cada zona se miden 10 puntos distribuidos uniformemente. Se asume [S]
+    que las zonas son franjas horizontales y que los 10 puntos forman una
+    grilla de 5 columnas x 2 filas dentro de cada franja.
+
+    Parámetros
+    ----------
+    lado_m : float
+        Lado del lote cuadrado, en metros.
+    n_zonas, n_columnas, n_filas : int
+        Número de franjas y tamaño de la grilla dentro de cada franja.
+
+    Retorna
+    -------
+    numpy.ndarray de forma (n_zonas * n_columnas * n_filas, 2)
+        Coordenadas x, y de los puntos de medición (m).
+    """
+    alto_zona = lado_m / n_zonas
+    xs = (np.arange(n_columnas) + 0.5) * lado_m / n_columnas
+    fracciones = (np.arange(n_filas) + 0.5) / n_filas
+    puntos = [
+        (x, zona * alto_zona + f * alto_zona)
+        for zona in range(n_zonas)
+        for f in fracciones
+        for x in xs
+    ]
+    return np.array(puntos)
+
+
+def interpolar_idw(xy_mediciones, valores, xy_destino, potencia=2.0):
+    """
+    Interpola por distancia inversa ponderada (IDW).
+
+    Cada punto de destino recibe un promedio de las mediciones, ponderado
+    por 1 / distancia ** potencia: las mediciones cercanas pesan más.
+
+    Parámetros
+    ----------
+    xy_mediciones : numpy.ndarray de forma (m, 2)
+        Coordenadas de los puntos medidos.
+    valores : numpy.ndarray de forma (m,)
+        Valor medido en cada punto.
+    xy_destino : numpy.ndarray de forma (n, 2)
+        Coordenadas donde se estima el valor.
+    potencia : float
+        Exponente de la distancia (2 es el valor habitual).
+
+    Retorna
+    -------
+    numpy.ndarray de forma (n,)
+        Valores interpolados.
+    """
+    distancias = cdist(xy_destino, xy_mediciones)
+    distancias = np.maximum(distancias, 1e-9)   # evita dividir por cero
+    pesos = 1.0 / distancias ** potencia
+    return (pesos @ valores) / pesos.sum(axis=1)
