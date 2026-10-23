@@ -182,3 +182,4 @@ RUIDO = {
 }
 
 ESTRATEGIAS = ["univariada", "multivariada"]
+
