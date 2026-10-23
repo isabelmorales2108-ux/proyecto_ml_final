@@ -232,3 +232,36 @@ def aplicar_iluminacion(bandas, sigma_relativo, rng):
     factor = 1.0 + rng.normal(0.0, sigma_relativo, size=n_puntos)
     return {banda: valores * factor for banda, valores in bandas.items()}
 
+
+def calcular_indices(bandas, savi_l=0.5):
+    """
+    Calcula los cuatro índices de vegetación a partir de las bandas.
+
+        NDVI  = (NIR - Rojo) / (NIR + Rojo)
+        GNDVI = (NIR - Verde) / (NIR + Verde)
+        EVI   = 2,5 * (NIR - Rojo) / (NIR + 6 * Rojo - 7,5 * Azul + 1)
+        SAVI  = (1 + L) * (NIR - Rojo) / (NIR + Rojo + L)
+
+    El EVI usa la formulación estándar (7,5 * Azul); el artículo escribe
+    7 * Azul (hallazgo 8 de la ficha). Las reflectancias deben estar en
+    escala 0-1.
+
+    Parámetros
+    ----------
+    bandas : dict
+        Reflectancias por banda: "azul", "verde", "rojo" y "nir".
+    savi_l : float
+        Factor de ajuste del suelo del SAVI (0,5 en el artículo).
+
+    Retorna
+    -------
+    dict
+        Un arreglo por índice: {"ndvi": ..., "gndvi": ..., "evi": ..., "savi": ...}.
+    """
+    azul, verde, rojo, nir = bandas["azul"], bandas["verde"], bandas["rojo"], bandas["nir"]
+    return {
+        "ndvi": (nir - rojo) / (nir + rojo),
+        "gndvi": (nir - verde) / (nir + verde),
+        "evi": 2.5 * (nir - rojo) / (nir + 6.0 * rojo - 7.5 * azul + 1.0),
+        "savi": (1.0 + savi_l) * (nir - rojo) / (nir + rojo + savi_l),
+    }
