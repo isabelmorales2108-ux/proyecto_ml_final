@@ -133,3 +133,23 @@ COBERTURA = {
     "rendimiento_medio": 50.0,   # t/ha en el punto de inflexión
     "pendiente": 0.053,          # calibrada: B y D entre 0,85 y 0,88
 }
+# ---------------------------------------------------------------------
+# 9. Estructura espacial [S]
+#    Necesaria para diagnosticar y corregir la fuga de información
+#    espacial (hallazgo 5).
+# ---------------------------------------------------------------------
+LOTE_LADO_M = 390.0                  # lote cuadrado de ~15,2 ha [R: 15-16 ha]
+
+AUTOCORRELACION = {
+    "modelo": "exponencial",         # correlación = (1 - pepita) * exp(-3 * d / alcance)
+    "alcance_m": 40.0,               # [S] manchas de rendimiento de 30 a 50 m (criterio agronómico)
+    "pepita": 0.20,                  # [S] variación local sin estructura espacial
+}
+ALCANCES_SENSIBILIDAD_M = [30.0, 40.0, 50.0]   # análisis de sensibilidad del alcance
+
+N_MEDICIONES_EXCAVACION = 30         # [R] puntos medidos a mano en B y D
+IDW_POTENCIA = 2.0                   # [S] potencia habitual de IDW; no reportada
+
+# Validación espacial
+N_BLOQUES_LADO = 4                   # grilla de 4 x 4 bloques de 97,5 m (> alcance)
+DISTANCIA_EXCLUSION_M = 40.0         # zona de exclusión igual al alcance
