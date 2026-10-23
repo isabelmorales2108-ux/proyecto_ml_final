@@ -153,3 +153,32 @@ IDW_POTENCIA = 2.0                   # [S] potencia habitual de IDW; no reportad
 # Validación espacial
 N_BLOQUES_LADO = 4                   # grilla de 4 x 4 bloques de 97,5 m (> alcance)
 DISTANCIA_EXCLUSION_M = 40.0         # zona de exclusión igual al alcance
+
+# ---------------------------------------------------------------------
+# 10. Fuentes de ruido [S] (valores iniciales; se calibran con las
+#     métricas de prueba de las Tablas 4 y 5)
+#
+#     Ambas estrategias: desacople dosel-rendimiento y ruido del sensor.
+#     Solo multivariada: brillo del suelo e iluminación, compartidos
+#     entre las cuatro bandas.
+# ---------------------------------------------------------------------
+RUIDO = {
+    # Fuente 1. Parte del rendimiento que no se expresa en el follaje
+    # (nematodos, Rhizoctonia, compactación). En desviaciones estándar de
+    # la parcela; con manchas del mismo alcance que el rendimiento.
+    "desacople": 0.30,
+
+    # Fuente 2. Error radiométrico relativo de cada banda, independiente
+    # por punto y por banda.
+    "sensor": {"Sentinel-2": 0.025, "PlanetScope": 0.040},
+
+    # Fuente 3. Brillo del suelo entre húmedo y seco, con estructura
+    # espacial (alcance de AUTOCORRELACION). Sin parámetro adicional:
+    # usa REFLECTANCIA_SUELO_HUMEDO y REFLECTANCIA_SUELO_SECO.
+
+    # Fuente 4. Variación relativa de iluminación o calibración que
+    # escala las cuatro bandas en la misma proporción.
+    "iluminacion": 0.03,
+}
+
+ESTRATEGIAS = ["univariada", "multivariada"]
