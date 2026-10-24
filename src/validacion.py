@@ -147,19 +147,27 @@ def predecir_fuera_de_muestra(nombre_modelo, sensor, parcela, X, y, particiones,
     return prediccion
 
 
-def evaluar_replica_extension(replica, alcance_m, sensor, estrategia):
+def evaluar_replica_extension(replica, alcance_m, sensor, estrategia,
+                              parcelas=None, modelos=None, esquemas=None):
     """
-    Evalúa todos los esquemas, respuestas y modelos en una réplica.
+    Evalúa los esquemas, respuestas y modelos indicados en una réplica.
+
+    Los parámetros parcelas, modelos y esquemas permiten acotar el cálculo
+    (por ejemplo, en la sensibilidad al alcance). Si son None, se usan
+    todas las parcelas, config.MODELOS_EXTENSION y ESQUEMAS.
 
     Retorna
     -------
     list de dict
         Una fila por parcela, esquema, respuesta y modelo.
     """
+    parcelas = config.PARCELAS if parcelas is None else parcelas
+    modelos = config.MODELOS_EXTENSION if modelos is None else modelos
+    esquemas = ESQUEMAS if esquemas is None else esquemas
     semilla = config.SEMILLA + replica
     base = generar_base(semilla=semilla, alcance_m=alcance_m, guardar=False)
     base = base[(base["sensor"] == sensor) & (base["estrategia"] == estrategia)
-                & (base["tipo_punto"] == "muestreo")]
+                & (base["tipo_punto"] == "muestreo") & base["parcela"].isin(parcelas)]
     filas = []
     for parcela, datos in base.groupby("parcela"):
         xy = datos[["x", "y"]].to_numpy()
@@ -168,11 +176,11 @@ def evaluar_replica_extension(replica, alcance_m, sensor, estrategia):
         respuestas = [config.VARIABLE_RESPUESTA]
         if datos["rendimiento_interpolado"].notna().all():
             respuestas.append("rendimiento_interpolado")
-        for esquema in ESQUEMAS:
+        for esquema in esquemas:
             particiones = construir_particiones(esquema, xy, semilla)
             for respuesta in respuestas:
                 y = datos[respuesta].to_numpy()
-                for modelo in config.MODELOS_EXTENSION:
+                for modelo in modelos:
                     prediccion = predecir_fuera_de_muestra(
                         modelo, sensor, parcela, X, y, particiones, semilla)
                     filas.append({
@@ -186,7 +194,8 @@ def evaluar_replica_extension(replica, alcance_m, sensor, estrategia):
 
 def ejecutar_extension(n_replicas=None, alcance_m=None, sensor="Sentinel-2",
                        estrategia="multivariada", archivo="03_extension.csv",
-                       recalcular=False, n_procesos=-1):
+                       recalcular=False, n_procesos=-1,
+                       parcelas=None, modelos=None, esquemas=None):
     """
     Ejecuta el experimento de la extensión: compara los esquemas de
     validación para los cuatro modelos, con réplicas procesadas en paralelo.
@@ -205,6 +214,8 @@ def ejecutar_extension(n_replicas=None, alcance_m=None, sensor="Sentinel-2",
         Si es True, recalcula aunque el archivo exista.
     n_procesos : int
         Procesos en paralelo (-1 = todos los núcleos disponibles).
+    parcelas, modelos, esquemas : list, opcionales
+        Permiten acotar el cálculo. Por defecto, todos.
 
     Retorna
     -------
@@ -222,7 +233,8 @@ def ejecutar_extension(n_replicas=None, alcance_m=None, sensor="Sentinel-2",
     alcance_m = config.AUTOCORRELACION["alcance_m"] if alcance_m is None else alcance_m
     inicio = time.time()
     por_replica = Parallel(n_jobs=n_procesos)(
-        delayed(evaluar_replica_extension)(r, alcance_m, sensor, estrategia)
+        delayed(evaluar_replica_extension)(r, alcance_m, sensor, estrategia,
+                                           parcelas, modelos, esquemas)
         for r in range(n_replicas)
     )
     tabla = pd.DataFrame([fila for filas in por_replica for fila in filas])
