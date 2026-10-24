@@ -230,3 +230,85 @@ def ejecutar_extension(n_replicas=None, alcance_m=None, sensor="Sentinel-2",
     config.DIR_RESULTADOS.mkdir(parents=True, exist_ok=True)
     tabla.to_csv(ruta, index=False)
     return tabla
+
+
+# ---------------------------------------------------------------------
+# Validación por parcela: entrenar con tres parcelas y evaluar en la cuarta
+# ---------------------------------------------------------------------
+def evaluar_replica_por_parcela(replica, sensor, estrategia):
+    """
+    Evalúa la transferencia entre parcelas en una réplica: para cada
+    parcela, entrena con las otras tres y predice la parcela excluida.
+
+    Los modelos del artículo usan los hiperparámetros de la Tabla 3 de la
+    parcela evaluada. Se usa el rendimiento real, porque la respuesta
+    interpolada solo existe en B y D.
+
+    Retorna
+    -------
+    list de dict
+        Una fila por parcela evaluada y modelo, con las métricas y el sesgo
+        (media predicha menos media observada, en t/ha).
+    """
+    semilla = config.SEMILLA + replica
+    base = generar_base(semilla=semilla, guardar=False)
+    base = base[(base["sensor"] == sensor) & (base["estrategia"] == estrategia)
+                & (base["tipo_punto"] == "muestreo")]
+    filas = []
+    for parcela in config.PARCELAS:
+        entrenamiento = base[base["parcela"] != parcela]
+        prueba = base[base["parcela"] == parcela]
+        X_ent = entrenamiento[config.PREDICTORES].to_numpy()
+        y_ent = entrenamiento[config.VARIABLE_RESPUESTA].to_numpy()
+        X_pru = prueba[config.PREDICTORES].to_numpy()
+        y_pru = prueba[config.VARIABLE_RESPUESTA].to_numpy()
+        for modelo in config.MODELOS_EXTENSION:
+            ajustado = construir_modelo(modelo, sensor, parcela, semilla).fit(X_ent, y_ent)
+            prediccion = ajustado.predict(X_pru)
+            filas.append({
+                "replica": replica, "parcela_evaluada": parcela, "modelo": modelo,
+                **calcular_metricas(y_pru, prediccion),
+                "sesgo": float(prediccion.mean() - y_pru.mean()),
+            })
+    return filas
+
+
+def ejecutar_validacion_por_parcela(n_replicas=None, sensor="Sentinel-2",
+                                    estrategia="multivariada",
+                                    archivo="03_validacion_por_parcela.csv",
+                                    recalcular=False, n_procesos=-1):
+    """
+    Ejecuta la validación por parcela en varias réplicas, en paralelo.
+
+    Parámetros
+    ----------
+    n_replicas : int, opcional
+        Número de réplicas. Por defecto, config.N_REPLICAS_EXTENSION (10).
+    sensor, estrategia : str
+        Combinación evaluada (por defecto, Sentinel-2 y multivariada).
+    archivo : str
+        Nombre del archivo CSV en results/.
+    recalcular : bool
+        Si es True, recalcula aunque el archivo exista.
+    n_procesos : int
+        Procesos en paralelo (-1 = todos los núcleos disponibles).
+
+    Retorna
+    -------
+    pandas.DataFrame
+        Una fila por réplica, parcela evaluada y modelo.
+    """
+    ruta = config.DIR_RESULTADOS / archivo
+    if ruta.exists() and not recalcular:
+        return pd.read_csv(ruta)
+
+    n_replicas = config.N_REPLICAS_EXTENSION if n_replicas is None else n_replicas
+    inicio = time.time()
+    por_replica = Parallel(n_jobs=n_procesos)(
+        delayed(evaluar_replica_por_parcela)(r, sensor, estrategia) for r in range(n_replicas)
+    )
+    tabla = pd.DataFrame([fila for filas in por_replica for fila in filas])
+    print(f"{n_replicas} réplicas terminadas en {(time.time() - inicio) / 60:.1f} min")
+    config.DIR_RESULTADOS.mkdir(parents=True, exist_ok=True)
+    tabla.to_csv(ruta, index=False)
+    return tabla
