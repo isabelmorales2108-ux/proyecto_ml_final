@@ -208,3 +208,10 @@ HIPERPARAMETROS_FIJOS = {
         "loss": "absolute_error",        # loss = LeastAbsoluteDeviation
     },
 }
+
+
+# ---------------------------------------------------------------------
+# 12. Modelos de la extensión experimental
+# ---------------------------------------------------------------------
+MODELOS_EXTENSION = MODELOS + ["Ridge"]   # línea base lineal (no está en el artículo)
+RIDGE_ALPHA = 1.0                          # [S] penalización por defecto; se ajusta en la validación anidada
