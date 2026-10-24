@@ -218,3 +218,14 @@ RIDGE_ALPHA = 1.0                          # [S] penalización por defecto; se a
 
 N_REPLICAS_EXTENSION = 10    # [S] réplicas de la extensión (cada una con 16 particiones)
 N_PARTICIONES_CV = 16        # particiones de la validación cruzada aleatoria (igual al número de bloques)
+
+# ---------------------------------------------------------------------
+# 13. Selección de hiperparámetros (hallazgo 12)
+# ---------------------------------------------------------------------
+REJILLAS = {
+    "Ridge": [{"alpha": a} for a in (0.01, 0.1, 1.0, 10.0, 100.0)],
+    "RF": [{"n_estimators": n, "min_samples_leaf": h}
+           for n in (100, 200) for h in (1, 3, 5, 7)],     # rango de la Tabla 3
+}
+N_PARTICIONES_EXTERNAS = 5    # validación cruzada externa (desempeño)
+N_PARTICIONES_INTERNAS = 5    # validación cruzada interna (selección)

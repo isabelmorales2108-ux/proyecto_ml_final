@@ -324,3 +324,99 @@ def ejecutar_validacion_por_parcela(n_replicas=None, sensor="Sentinel-2",
     config.DIR_RESULTADOS.mkdir(parents=True, exist_ok=True)
     tabla.to_csv(ruta, index=False)
     return tabla
+
+
+# ---------------------------------------------------------------------
+# Selección de hiperparámetros: fija, con fuga y anidada (hallazgo 12)
+# ---------------------------------------------------------------------
+def _configuracion(nombre, combinacion):
+    """Completa una combinación de la rejilla con los valores fijos del modelo."""
+    if nombre == "Ridge":
+        return combinacion
+    return {**config.HIPERPARAMETROS_FIJOS[nombre], **combinacion}
+
+
+def _r2_validacion_interna(nombre, sensor, parcela, X, y, combinacion, semilla):
+    """R² medio de una combinación en una validación cruzada interna."""
+    interna = KFold(n_splits=config.N_PARTICIONES_INTERNAS, shuffle=True, random_state=semilla)
+    puntajes = []
+    for ent, val in interna.split(X):
+        modelo = construir_modelo(nombre, sensor, parcela, semilla, _configuracion(nombre, combinacion))
+        modelo.fit(X[ent], y[ent])
+        puntajes.append(calcular_metricas(y[val], modelo.predict(X[val]))["r2"])
+    return float(np.mean(puntajes))
+
+
+def evaluar_replica_seleccion(replica, sensor="Sentinel-2", estrategia="multivariada",
+                              parcelas=("A", "C"), modelos=("Ridge", "RF")):
+    """
+    Compara tres formas de elegir hiperparámetros en una réplica, con una
+    validación cruzada externa aleatoria de 5 particiones:
+
+    - "fija": hiperparámetros del artículo (Tabla 3) o alpha = 1 en Ridge.
+    - "con_fuga": en cada partición externa se elige la combinación de la
+      rejilla con mejor desempeño en el propio conjunto de prueba, como
+      hicieron los autores (hallazgo 12).
+    - "anidada": la combinación se elige con una validación cruzada interna
+      solo sobre el entrenamiento; el conjunto de prueba se usa una vez.
+
+    Retorna
+    -------
+    list de dict
+        Una fila por parcela, modelo y forma de selección.
+    """
+    semilla = config.SEMILLA + replica
+    base = generar_base(semilla=semilla, guardar=False)
+    base = base[(base["sensor"] == sensor) & (base["estrategia"] == estrategia)
+                & (base["tipo_punto"] == "muestreo") & base["parcela"].isin(parcelas)]
+    externa = KFold(n_splits=config.N_PARTICIONES_EXTERNAS, shuffle=True, random_state=semilla)
+    filas = []
+    for parcela, datos in base.groupby("parcela"):
+        X = datos[config.PREDICTORES].to_numpy()
+        y = datos[config.VARIABLE_RESPUESTA].to_numpy()
+        for nombre in modelos:
+            predicciones = {forma: np.full(len(y), np.nan) for forma in ("fija", "con_fuga", "anidada")}
+            for ent, pru in externa.split(X):
+                # 1. Fija
+                modelo = construir_modelo(nombre, sensor, parcela, semilla).fit(X[ent], y[ent])
+                predicciones["fija"][pru] = modelo.predict(X[pru])
+                # 2. Con fuga: se elige mirando el conjunto de prueba
+                mejor, mejor_r2 = None, -np.inf
+                for combinacion in config.REJILLAS[nombre]:
+                    modelo = construir_modelo(nombre, sensor, parcela, semilla,
+                                              _configuracion(nombre, combinacion)).fit(X[ent], y[ent])
+                    pred = modelo.predict(X[pru])
+                    r2 = calcular_metricas(y[pru], pred)["r2"]
+                    if r2 > mejor_r2:
+                        mejor, mejor_r2 = pred, r2
+                predicciones["con_fuga"][pru] = mejor
+                # 3. Anidada: se elige con validación interna en el entrenamiento
+                elegida = max(config.REJILLAS[nombre], key=lambda c: _r2_validacion_interna(
+                    nombre, sensor, parcela, X[ent], y[ent], c, semilla))
+                modelo = construir_modelo(nombre, sensor, parcela, semilla,
+                                          _configuracion(nombre, elegida)).fit(X[ent], y[ent])
+                predicciones["anidada"][pru] = modelo.predict(X[pru])
+            for forma, pred in predicciones.items():
+                filas.append({"replica": replica, "parcela": parcela, "modelo": nombre,
+                              "seleccion": forma, **calcular_metricas(y, pred)})
+    return filas
+
+
+def ejecutar_seleccion_hiperparametros(n_replicas=5, archivo="03_seleccion_hiperparametros.csv",
+                                       recalcular=False, n_procesos=-1, **opciones):
+    """
+    Ejecuta la comparación de formas de selección de hiperparámetros en
+    varias réplicas, en paralelo, y guarda los resultados en results/.
+    """
+    ruta = config.DIR_RESULTADOS / archivo
+    if ruta.exists() and not recalcular:
+        return pd.read_csv(ruta)
+    inicio = time.time()
+    por_replica = Parallel(n_jobs=n_procesos)(
+        delayed(evaluar_replica_seleccion)(r, **opciones) for r in range(n_replicas)
+    )
+    tabla = pd.DataFrame([fila for filas in por_replica for fila in filas])
+    print(f"{n_replicas} réplicas terminadas en {(time.time() - inicio) / 60:.1f} min")
+    config.DIR_RESULTADOS.mkdir(parents=True, exist_ok=True)
+    tabla.to_csv(ruta, index=False)
+    return tabla
