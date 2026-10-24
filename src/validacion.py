@@ -11,11 +11,18 @@ compararse modificando una sola condición del experimento.
   los puntos a menos de una distancia dada del bloque de prueba.
 """
 
+import time
+
 import numpy as np
+import pandas as pd
+from joblib import Parallel, delayed
 from scipy.spatial.distance import cdist
 from sklearn.model_selection import KFold
 
 from . import config
+from .evaluacion import calcular_metricas
+from .modelos import construir_modelo
+from .simulacion import generar_base
 
 
 def asignar_bloques(xy, lado_m=None, n_bloques_lado=None):
@@ -88,3 +95,138 @@ def particiones_por_bloques(xy, distancia_exclusion_m=0.0, lado_m=None, n_bloque
             entrenamiento = entrenamiento[distancia_minima >= distancia_exclusion_m]
         particiones.append((entrenamiento, prueba))
     return particiones
+
+
+# ---------------------------------------------------------------------
+# Ejecución del experimento de la extensión
+# ---------------------------------------------------------------------
+ESQUEMAS = ["aleatoria", "bloques", "bloques_exclusion"]
+
+
+def construir_particiones(esquema, xy, semilla):
+    """
+    Devuelve las particiones de un esquema de validación.
+
+    Parámetros
+    ----------
+    esquema : str
+        "aleatoria", "bloques" o "bloques_exclusion".
+    xy : numpy.ndarray de forma (n, 2)
+        Coordenadas de los puntos (m).
+    semilla : int
+        Semilla de la partición aleatoria.
+
+    Retorna
+    -------
+    list de tuplas (índices de entrenamiento, índices de prueba)
+    """
+    if esquema == "aleatoria":
+        return particiones_aleatorias(len(xy), config.N_PARTICIONES_CV, semilla)
+    if esquema == "bloques":
+        return particiones_por_bloques(xy)
+    if esquema == "bloques_exclusion":
+        return particiones_por_bloques(xy, config.DISTANCIA_EXCLUSION_M)
+    raise ValueError(f"Esquema desconocido: {esquema}")
+
+
+def predecir_fuera_de_muestra(nombre_modelo, sensor, parcela, X, y, particiones, semilla):
+    """
+    Entrena un modelo en cada partición y predice su conjunto de prueba.
+
+    Retorna
+    -------
+    numpy.ndarray
+        Una predicción por punto, hecha por un modelo que no vio ese punto
+        en el entrenamiento.
+    """
+    prediccion = np.full(len(y), np.nan)
+    for entrenamiento, prueba in particiones:
+        modelo = construir_modelo(nombre_modelo, sensor, parcela, semilla)
+        modelo.fit(X[entrenamiento], y[entrenamiento])
+        prediccion[prueba] = modelo.predict(X[prueba])
+    return prediccion
+
+
+def evaluar_replica_extension(replica, alcance_m, sensor, estrategia):
+    """
+    Evalúa todos los esquemas, respuestas y modelos en una réplica.
+
+    Retorna
+    -------
+    list de dict
+        Una fila por parcela, esquema, respuesta y modelo.
+    """
+    semilla = config.SEMILLA + replica
+    base = generar_base(semilla=semilla, alcance_m=alcance_m, guardar=False)
+    base = base[(base["sensor"] == sensor) & (base["estrategia"] == estrategia)
+                & (base["tipo_punto"] == "muestreo")]
+    filas = []
+    for parcela, datos in base.groupby("parcela"):
+        xy = datos[["x", "y"]].to_numpy()
+        X = datos[config.PREDICTORES].to_numpy()
+        y_real = datos[config.VARIABLE_RESPUESTA].to_numpy()
+        respuestas = [config.VARIABLE_RESPUESTA]
+        if datos["rendimiento_interpolado"].notna().all():
+            respuestas.append("rendimiento_interpolado")
+        for esquema in ESQUEMAS:
+            particiones = construir_particiones(esquema, xy, semilla)
+            for respuesta in respuestas:
+                y = datos[respuesta].to_numpy()
+                for modelo in config.MODELOS_EXTENSION:
+                    prediccion = predecir_fuera_de_muestra(
+                        modelo, sensor, parcela, X, y, particiones, semilla)
+                    filas.append({
+                        "replica": replica, "alcance_m": alcance_m, "parcela": parcela,
+                        "esquema": esquema, "respuesta": respuesta, "modelo": modelo,
+                        **calcular_metricas(y, prediccion),
+                        "r2_vs_real": calcular_metricas(y_real, prediccion)["r2"],
+                    })
+    return filas
+
+
+def ejecutar_extension(n_replicas=None, alcance_m=None, sensor="Sentinel-2",
+                       estrategia="multivariada", archivo="03_extension.csv",
+                       recalcular=False, n_procesos=-1):
+    """
+    Ejecuta el experimento de la extensión: compara los esquemas de
+    validación para los cuatro modelos, con réplicas procesadas en paralelo.
+
+    Parámetros
+    ----------
+    n_replicas : int, opcional
+        Número de réplicas. Por defecto, config.N_REPLICAS_EXTENSION (10).
+    alcance_m : float, opcional
+        Alcance de la autocorrelación (m). Por defecto, el de config.
+    sensor, estrategia : str
+        Combinación evaluada (por defecto, Sentinel-2 y multivariada).
+    archivo : str
+        Nombre del archivo CSV en results/.
+    recalcular : bool
+        Si es True, recalcula aunque el archivo exista.
+    n_procesos : int
+        Procesos en paralelo (-1 = todos los núcleos disponibles).
+
+    Retorna
+    -------
+    pandas.DataFrame
+        Una fila por réplica, parcela, esquema, respuesta y modelo, con las
+        métricas de las predicciones fuera de muestra. La columna r2_vs_real
+        mide el desempeño frente al rendimiento real, aunque el modelo se
+        haya entrenado con el interpolado.
+    """
+    ruta = config.DIR_RESULTADOS / archivo
+    if ruta.exists() and not recalcular:
+        return pd.read_csv(ruta)
+
+    n_replicas = config.N_REPLICAS_EXTENSION if n_replicas is None else n_replicas
+    alcance_m = config.AUTOCORRELACION["alcance_m"] if alcance_m is None else alcance_m
+    inicio = time.time()
+    por_replica = Parallel(n_jobs=n_procesos)(
+        delayed(evaluar_replica_extension)(r, alcance_m, sensor, estrategia)
+        for r in range(n_replicas)
+    )
+    tabla = pd.DataFrame([fila for filas in por_replica for fila in filas])
+    print(f"{n_replicas} réplicas terminadas en {(time.time() - inicio) / 60:.1f} min")
+    config.DIR_RESULTADOS.mkdir(parents=True, exist_ok=True)
+    tabla.to_csv(ruta, index=False)
+    return tabla

@@ -215,3 +215,6 @@ HIPERPARAMETROS_FIJOS = {
 # ---------------------------------------------------------------------
 MODELOS_EXTENSION = MODELOS + ["Ridge"]   # línea base lineal (no está en el artículo)
 RIDGE_ALPHA = 1.0                          # [S] penalización por defecto; se ajusta en la validación anidada
+
+N_REPLICAS_EXTENSION = 10    # [S] réplicas de la extensión (cada una con 16 particiones)
+N_PARTICIONES_CV = 16        # particiones de la validación cruzada aleatoria (igual al número de bloques)
